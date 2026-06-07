@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environments
+.env
+.venv/
+venv/
+env/
+
+# Training outputs
+checkpoints/
+runs/
+wandb/
+logs/
+*.log
+
+# Generated media and renders
+renders/
+eval_*.mp4
+*_eval.mp4
+
+# Local backups and temporary files
+backups/
+*.bak
+*.bak_*
+*.tmp
+*.swp
+*~
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
