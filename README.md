@@ -4,11 +4,9 @@
 
 This project trains a policy that receives a user language prompt and conditions the robot behavior on that task. Example goals include instructions such as placing a colored block into a specified plate or bowl. The RL policy is trained with staged PPO so the robot learns to reach, grasp, lift, transport, place, release, and settle the object.
 
-## Demo
+## Environment
 
-[Watch the demo video](Video/Language_RL.mp4)
-
-<video src="Video/Language_RL.mp4" controls width="720"></video>
+![Language-conditioned RL environment](Env.png)
 
 ## Project Idea
 
@@ -21,7 +19,7 @@ The goal is to connect natural-language task descriptions with robotic control. 
 - `evaluate.py`: Policy evaluation and video recording.
 - `ppo.py`: PPO implementation.
 - `smoke_test.py`: Quick environment sanity check.
-- `Video/Language_RL.mp4`: demo output.
+- `Env.png`: environment preview.
 
 ## Run
 

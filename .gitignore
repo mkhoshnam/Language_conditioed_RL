@@ -20,6 +20,7 @@ logs/
 
 # Generated media and renders
 renders/
+*.mp4
 eval_*.mp4
 *_eval.mp4
 
