@@ -1,4 +1,4 @@
-# Multi task Language conditioned RL training 
+# Multi task Language conditioned RL training (This is an ongoing project, update monthly- stay tuned)
 
 It uses the MuJoCo Menagerie Franka Panda scene in `calvin_franka_scene/` with:
 
