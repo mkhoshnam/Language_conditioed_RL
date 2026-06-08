@@ -19,6 +19,7 @@ VIDEO_PATH = os.environ.get(
 )
 CAMERA = os.environ.get("CAMERA", "fixed_scene")
 TASK_INDEX = os.environ.get("TASK_INDEX")
+COMMAND = os.environ.get("COMMAND")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -76,11 +77,6 @@ def _render_frame(env, info=None, step_i=None, goal=None):
     if info is not None:
         lines = [
             f"goal: {goal}",
-            f"stage: {info.get('stage_name', '?')}  step: {step_i}",
-            f"block: {info.get('selected_block', '?')} -> target: {info.get('selected_target', '?')}",
-            f"place_dist: {info.get('place_dist', 0)*100:.1f}cm  lift: {info.get('max_lift_height', 0)*100:.1f}cm",
-            f"ee_down: {info.get('ee_z_down', 0):.2f}  gripper_open: {info.get('gripper_open', 0):.2f}",
-            f"released: {bool(info.get('raw_released', 0))}  success: {bool(info.get('success', 0))}",
         ]
         frame = _put_text(frame, lines)
 
@@ -89,6 +85,15 @@ def _render_frame(env, info=None, step_i=None, goal=None):
 
 def evaluate():
     fixed_task = int(TASK_INDEX) if TASK_INDEX is not None else None
+    parsed_command = None
+
+    if COMMAND and fixed_task is None:
+        from llm_parser import parse_command
+
+        parsed_command = parse_command(COMMAND)
+        fixed_task = int(parsed_command["task_index"])
+        print(f"Parsed command: {parsed_command}")
+
     env = RealFrankaPickPlaceEnv(
         render_mode="rgb_array" if VIDEO_EPISODES > 0 else None,
         fixed_task_index=fixed_task,
@@ -104,6 +109,8 @@ def evaluate():
         env.curriculum_dist = float(agent.extra["curriculum_dist"])
     if "lift_goal_height" in agent.extra:
         env.curriculum_lift_height = float(agent.extra["lift_goal_height"])
+    if "success_radius" in agent.extra:
+        env.success_radius = float(agent.extra["success_radius"])
 
     print(f"Loaded {CKPT}")
     print(
@@ -131,6 +138,7 @@ def evaluate():
     best_places = []
     best_settles = []
     goals = []
+    saved_video_episodes = 0
 
     try:
         if VIDEO_EPISODES > 0:
@@ -157,14 +165,15 @@ def evaluate():
             ep_max_lift = 0.0
             ep_best_place = np.inf
             ep_best_settle = 0.0
-            goals.append(reset_info.get("language_goal", env.language_goal))
+            goals.append(COMMAND if COMMAND else reset_info.get("language_goal", env.language_goal))
+            episode_frames = []
 
             for _ in range(280):
                 obs_norm = agent.obs_rms.normalize(obs)
                 obs_t = torch.tensor(obs_norm, dtype=torch.float32, device=DEVICE)
                 with torch.no_grad():
-                    mean, _, _ = agent.policy(obs_t)
-                act = torch.tanh(mean).cpu().numpy()
+                    act_t, _, _ = agent.policy.act(obs_t)
+                act = act_t.cpu().numpy()
 
                 obs, _, terminated, truncated, info = env.step(act)
                 ep_success = ep_success or info["success"]
@@ -183,11 +192,17 @@ def evaluate():
                 ep_best_place = min(ep_best_place, info["place_dist"])
                 ep_best_settle = max(ep_best_settle, info["settle_score"])
 
-                if writer is not None and ep < VIDEO_EPISODES:
-                    writer.append_data(_render_frame(env, info=info, step_i=_, goal=goals[-1]))
+                if writer is not None and saved_video_episodes < VIDEO_EPISODES:
+                    episode_frames.append(_render_frame(env, info=info, step_i=_, goal=goals[-1]))
 
                 if terminated or truncated:
                     break
+
+            if writer is not None and ep_success and saved_video_episodes < VIDEO_EPISODES:
+                for frame in episode_frames:
+                    writer.append_data(frame)
+                saved_video_episodes += 1
+                print(f"  Saved successful video episode {saved_video_episodes}/{VIDEO_EPISODES}")
 
             successes.append(ep_success)
             grasped.append(ep_grasped)

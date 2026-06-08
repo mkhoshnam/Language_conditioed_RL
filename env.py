@@ -25,16 +25,21 @@ TARGET_Y_RANGE = (-0.18, 0.18)
 
 BLOCK_NAMES = ("red_block", "blue_block", "green_block")
 TARGET_NAMES = ("yellow_plate", "purple_plate", "cyan_bowl", "orange_plate")
-TASKS = (
-    ("red_block", "yellow_plate", "put the red block in the yellow plate"),
-    ("blue_block", "purple_plate", "put the blue block in the purple plate"),
-    ("green_block", "cyan_bowl", "put the green block in the cyan bowl"),
-    ("red_block", "orange_plate", "put the red block in the orange plate"),
+TASKS = tuple(
+    (
+        block,
+        target,
+        f"put the {block.replace('_', ' ')} in the {target.replace('_', ' ')}",
+    )
+    for block in BLOCK_NAMES
+    for target in TARGET_NAMES
 )
 CAMERAS = ("fixed_scene", "wrist_camera")
 
 SUCCESS_RADIUS = 0.055
-SUCCESS_HOLD_STEPS = 7
+SUCCESS_RADIUS_START = 0.075
+SUCCESS_RADIUS_MIN = 0.060
+SUCCESS_HOLD_STEPS = 2
 TRANSPORT_HOLD_STEPS = 5
 APPROACH_OFFSET = np.array([-0.055, 0.0, 0.090], dtype=np.float64)
 APPROACH_RADIUS = 0.060
@@ -46,13 +51,14 @@ LIFT_HEIGHT = 0.055
 SECURE_GRASP_HEIGHT = 0.012
 LIFT_CURRICULUM_START = 0.020
 TRANSPORT_LIFT_HEIGHT = 0.065
-EXCESS_LIFT_HEIGHT = 0.085
-CARRY_HIGH_HEIGHT = 0.095
-CARRY_CRITICAL_HEIGHT = 0.125
-MAX_TRANSPORT_SUCCESS_HEIGHT = 0.100
+EXCESS_LIFT_HEIGHT = 0.105
+CARRY_HIGH_HEIGHT = 0.120
+CARRY_CRITICAL_HEIGHT = 0.150
+MAX_TRANSPORT_SUCCESS_HEIGHT = 0.120
 PLACE_LOWER_RADIUS = 0.090
 RELEASE_RADIUS = 0.075
-RELEASE_UNLOCK_HEIGHT = 0.070
+GATE_RELEASE_RADIUS = 0.110
+RELEASE_UNLOCK_HEIGHT = 0.105
 TRANSPORT_RADIUS = 0.065
 PLACE_MIN_CARRY_HEIGHT = 0.045
 PLACE_CARRY_HEIGHT_BAND = 0.035
@@ -66,8 +72,8 @@ MAX_STEPS = 280
 
 EE_POS_DELTA = 0.032
 EE_ROT_DELTA = 0.120
-CARRY_POS_SCALE = 0.55
-CARRY_ROT_SCALE = 0.20
+CARRY_POS_SCALE = 0.85
+CARRY_ROT_SCALE = 0.30
 JOINT_DELTA_LIMIT = 0.080
 IK_DAMPING = 0.080
 ROTATION_IK_WEIGHT = 0.30
@@ -180,6 +186,7 @@ class RealFrankaPickPlaceEnv(gym.Env):
         self._max_lift_height = 0.0
         self.curriculum_dist = 0.10
         self.curriculum_lift_height = LIFT_CURRICULUM_START
+        self.success_radius = SUCCESS_RADIUS_START
         self.task_stage = STAGE_REACH
 
         if render_mode in ("human", "rgb_array"):
@@ -519,13 +526,23 @@ class RealFrankaPickPlaceEnv(gym.Env):
             np.clip(next_gripper, GRIPPER_CLOSED_CTRL, GRIPPER_OPEN_CTRL)
         )
         gripper_open_allowed = True
-        if self.task_stage >= STAGE_TRANSPORT:
+
+        if self.task_stage == STAGE_TRANSPORT:
+            if pre_holding_or_lifting:
+                gripper_open_allowed = False
+
+
+        elif self.task_stage >= STAGE_PLACE:
+
             if pre_holding_or_lifting:
                 gripper_open_allowed = (
-                    self.task_stage >= STAGE_PLACE
-                    and pre_place_dist < RELEASE_RADIUS
-                    and pre_lift_height < RELEASE_UNLOCK_HEIGHT
+
+                        pre_place_dist < GATE_RELEASE_RADIUS
+
+                        and pre_lift_height < 0.090
+
                 )
+
         if not gripper_open_allowed:
             next_gripper = GRIPPER_CLOSED_CTRL
 
@@ -659,11 +676,11 @@ class RealFrankaPickPlaceEnv(gym.Env):
                 if down_score < 0.75:
                     reward -= 0.65 * (0.75 - down_score)
             reward -= (
-                18.0 * excess_lift
-                + 180.0 * excess_lift * excess_lift
-                + 30.0 * high_lift
-                + 260.0 * high_lift * high_lift
-                + 4.5 * critical_lift
+                6.0 * excess_lift
+                + 55.0 * excess_lift * excess_lift
+                + 10.0 * high_lift
+                + 70.0 * high_lift * high_lift
+                + 2.0 * critical_lift
             )
             lift_fraction = np.clip(lift_height / LIFT_HEIGHT, 0.0, 1.2)
             if not self._ever_lifted:
@@ -774,17 +791,20 @@ class RealFrankaPickPlaceEnv(gym.Env):
             if opened_gripper and lift_height > TRANSPORT_LIFT_HEIGHT:
                 reward -= 0.25
             if place_dist < RELEASE_RADIUS:
-                reward += 1.35 * release_zone
+                reward += 2.50 * release_zone
                 reward += 3.2 * np.clip(settle_progress, -0.20, 0.20)
-                reward += 1.90 * settle_score
-                if close_frac > GRIPPER_HOLD_CLOSED and lift_height < 0.055:
-                    reward -= 0.70 * close_frac * release_zone
+                reward += 2.50 * settle_score
+                reward += 4.00 * release_score * release_zone
+
+                # Penalize holding near target, even if the cube is still slightly high.
+                reward -= 0.60 * close_frac * release_zone
+
                 if cube_speed > SETTLE_SPEED and lift_height < 0.055:
                     reward -= 0.85 * min(cube_speed, 0.50) * release_zone
             elif (opened_gripper or lost_object) and lift_height < 0.050:
                 reward -= 0.20
 
-            if place_dist < SUCCESS_RADIUS and not released:
+            if place_dist < self.success_radius and not released:
                 reward -= 0.80 * close_frac
             if (opened_gripper or lost_object) and place_dist > PLACE_LOWER_RADIUS:
                 reward -= 0.32 * min(place_dist, 0.20)
@@ -793,7 +813,7 @@ class RealFrankaPickPlaceEnv(gym.Env):
 
         placed = (
             self._ever_lifted
-            and place_dist < SUCCESS_RADIUS
+            and place_dist < self.success_radius
             and cube_on_table
             and low_cube_speed
             and released
@@ -824,7 +844,7 @@ class RealFrankaPickPlaceEnv(gym.Env):
                 and held_like
                 and not opened_gripper
                 and cube_speed < 0.55
-                and ee_z_down > 0.75
+                and ee_z_down > 0.55
                 and ee_target_dist < 0.085
             )
             stage_done = transport_done
@@ -849,8 +869,8 @@ class RealFrankaPickPlaceEnv(gym.Env):
             + 0.0018 * float(np.square(ee_rot_action).sum())
             + 0.0022 * abs(gripper_action)
         )
-        if not gripper_open_allowed and gripper_action < 0.0:
-            reward -= 0.12 * abs(gripper_action)
+        if self.task_stage == STAGE_TRANSPORT and not gripper_open_allowed and gripper_action < 0.0:
+            reward -= 0.04 * abs(gripper_action)
         ik_cost = 0.012 * float(np.square(arm_delta).sum())
         speed_cost = 0.0008 * float(np.linalg.norm(obs[9:18]))
         reward -= action_cost + ik_cost + speed_cost
@@ -891,6 +911,7 @@ class RealFrankaPickPlaceEnv(gym.Env):
             "approach_dist": approach_dist,
             "best_approach_dist": self._best_approach_dist,
             "place_dist": place_dist,
+            "ee_target_dist": ee_target_dist,
             "block_z": float(block[2]),
             "grasped": float(grasped or self._ever_grasped),
             "secure_grasped": float(secure_grasped),
@@ -905,6 +926,8 @@ class RealFrankaPickPlaceEnv(gym.Env):
             "dropped_far": float(dropped_far),
             "cube_on_table": float(cube_on_table),
             "cube_speed": cube_speed,
+            "low_cube_speed": float(low_cube_speed),
+            "success_radius": float(self.success_radius),
             "settle_score": settle_score,
             "max_lift_height": self._max_lift_height,
             "lift_goal_height": lift_goal,

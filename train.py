@@ -48,6 +48,10 @@ CURRICULUM_STEP = float(os.environ.get("CURRICULUM_STEP", 0.02))
 CURRICULUM_THRESH = float(os.environ.get("CURRICULUM_THRESH", 0.70))
 CURRICULUM_PLACE_DIST = float(os.environ.get("CURRICULUM_PLACE_DIST", 0.040))
 CURRICULUM_COOLDOWN_UPDATES = int(os.environ.get("CURRICULUM_COOLDOWN_UPDATES", 40))
+SUCCESS_RADIUS_START = float(os.environ.get("SUCCESS_RADIUS_START", 0.075))
+SUCCESS_RADIUS_MIN = float(os.environ.get("SUCCESS_RADIUS_MIN", 0.060))
+SUCCESS_RADIUS_STEP = float(os.environ.get("SUCCESS_RADIUS_STEP", 0.0025))
+SUCCESS_RADIUS_TIGHTEN_SUCC = float(os.environ.get("SUCCESS_RADIUS_TIGHTEN_SUCC", 0.50))
 STAGE_COOLDOWN_UPDATES = int(os.environ.get("STAGE_COOLDOWN_UPDATES", 10))
 REACH_TO_GRASP_SUCCESS = float(os.environ.get("REACH_TO_GRASP_SUCCESS", 0.80))
 REACH_TO_GRASP_DIST = APPROACH_RADIUS + 0.010
@@ -72,6 +76,7 @@ def train():
     env = RealFrankaPickPlaceEnv()
     env.curriculum_dist = CURRICULUM_START
     env.curriculum_lift_height = LIFT_CURRICULUM_START
+    env.success_radius = SUCCESS_RADIUS_START
     task_stage = STAGE_REACH
     env.task_stage = task_stage
 
@@ -119,9 +124,10 @@ def train():
         env.curriculum_lift_height = float(
             agent.extra.get("lift_goal_height", env.curriculum_lift_height)
         )
+        env.success_radius = float(agent.extra.get("success_radius", env.success_radius))
         task_stage = int(agent.extra.get("task_stage", task_stage))
         env.task_stage = task_stage
-        if task_stage >= STAGE_TRANSPORT:
+        if task_stage >= STAGE_PLACE:
             set_transport_ppo()
         last_stage_update = update_num
         last_curriculum_update = update_num
@@ -156,6 +162,7 @@ def train():
             "update_num": update_num,
             "curriculum_dist": env.curriculum_dist,
             "lift_goal_height": env.curriculum_lift_height,
+            "success_radius": env.success_radius,
             "task_stage": task_stage,
             "stage_name": STAGE_NAMES[task_stage],
             "best_stage_score": list(best_stage_score),
@@ -579,7 +586,6 @@ def train():
                         ):
                             task_stage = STAGE_TRANSPORT
                             env.task_stage = task_stage
-                            set_transport_ppo()
                             last_stage_update = update_num
                             stage_changed = True
                             pre_transport = os.path.join(
@@ -588,8 +594,7 @@ def train():
                             save_checkpoint(pre_transport, "pre_transport")
                             print(
                                 "  >>> Stage advanced to transport: "
-                                "carry-to-target objective enabled "
-                                f"(lr -> {PLACE_LR:g})"
+                                "carry-to-target objective enabled"
                             )
                         else:
                             print(
@@ -632,6 +637,22 @@ def train():
                     )
                     last_curriculum_update = update_num
                     print(f"  >>> Place curriculum advanced to {env.curriculum_dist:.2f}m")
+
+                if (
+                    task_stage == STAGE_PLACE
+                    and window >= ROLLING_WINDOW
+                    and mean_task_suc >= SUCCESS_RADIUS_TIGHTEN_SUCC
+                    and mean_place <= env.success_radius - 0.005
+                    and env.success_radius > SUCCESS_RADIUS_MIN
+                ):
+                    env.success_radius = max(
+                        env.success_radius - SUCCESS_RADIUS_STEP,
+                        SUCCESS_RADIUS_MIN,
+                    )
+                    print(
+                        "  >>> Success radius tightened to "
+                        f"{env.success_radius * 100:.1f}cm"
+                    )
 
                 if stage_changed:
                     clear_history()

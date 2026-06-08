@@ -51,7 +51,15 @@ class ActorCritic(nn.Module):
     def forward(self, x):
         feat = self.shared(x)
         mean = self.actor_mean(feat)
-        logstd = self.actor_logstd.clamp(-5.0, 0.0)
+
+        base_logstd = self.actor_logstd.clamp(-5.0, 0.0)
+
+        # Temporary place-stage fix: keep gripper exploration alive.
+        # Action dim 6 is gripper. Use torch.cat to avoid in-place autograd error.
+        arm_logstd = base_logstd[:-1]
+        gripper_logstd = base_logstd[-1:].clamp(min=-1.0)
+        logstd = torch.cat([arm_logstd, gripper_logstd], dim=0)
+
         std = logstd.exp().expand_as(mean)
         value = self.critic(feat).squeeze(-1)
         return mean, std, value
