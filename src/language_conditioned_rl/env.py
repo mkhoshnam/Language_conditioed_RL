@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 os.environ.setdefault("MUJOCO_GL", "egl")
 
@@ -8,10 +9,8 @@ import mujoco
 import numpy as np
 
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-XML_PATH = os.path.abspath(
-    os.path.join(SCRIPT_DIR, "..", "calvin_franka_scene", "calvin_scene.xml")
-)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+XML_PATH = PROJECT_ROOT / "third_party" / "calvin_franka_scene" / "calvin_scene.xml"
 
 TABLE_TOP_Z = 0.230
 BLOCK_HALF = 0.025
@@ -97,7 +96,7 @@ class RealFrankaPickPlaceEnv(gym.Env):
 
     def __init__(self, render_mode=None, fixed_task_index=None):
         super().__init__()
-        self.model = mujoco.MjModel.from_xml_path(XML_PATH)
+        self.model = mujoco.MjModel.from_xml_path(str(XML_PATH))
         self._enable_robot_gravity_compensation()
         self.data = mujoco.MjData(self.model)
         self.render_mode = render_mode

@@ -1,0 +1,7 @@
+gymnasium
+imageio
+mujoco
+numpy
+openai
+opencv-python
+torch

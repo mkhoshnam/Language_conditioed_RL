@@ -1,10 +1,17 @@
 import os
+import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
 
-from env import (
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = PROJECT_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from language_conditioned_rl.env import (
     APPROACH_RADIUS,
     LIFT_CURRICULUM_START,
     LIFT_HEIGHT,
@@ -17,10 +24,9 @@ from env import (
     STAGE_TRANSPORT,
     TRANSPORT_RADIUS,
 )
-from ppo import PPO
+from language_conditioned_rl.ppo import PPO
 
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TOTAL_STEPS = int(os.environ.get("TOTAL_STEPS", 12_000_000))
 N_STEPS = int(os.environ.get("N_STEPS", 4096))
 LOG_INTERVAL = int(os.environ.get("LOG_INTERVAL", 5))
@@ -28,7 +34,7 @@ SAVE_INTERVAL = int(os.environ.get("SAVE_INTERVAL", 25))
 ROLLING_WINDOW = int(os.environ.get("ROLLING_WINDOW", 50))
 MIN_BEST_WINDOW = int(os.environ.get("MIN_BEST_WINDOW", 20))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-CKPT_DIR = os.path.join(SCRIPT_DIR, "checkpoints")
+CKPT_DIR = PROJECT_ROOT / "checkpoints"
 os.makedirs(CKPT_DIR, exist_ok=True)
 RESUME_CKPT = os.environ.get("RESUME_CKPT")
 LR = float(os.environ.get("LR", 1.5e-4))
@@ -37,10 +43,10 @@ ENT_COEF = float(os.environ.get("ENT_COEF", 0.004))
 PLACE_ENT_COEF = float(os.environ.get("PLACE_ENT_COEF", ENT_COEF * 0.35))
 PLACE_CLIP_EPS = float(os.environ.get("PLACE_CLIP_EPS", 0.10))
 
-BEST_STAGE_CKPT = os.path.join(CKPT_DIR, "ppo_real_franka_best_stage.pt")
-BEST_PLACE_SUCCESS_CKPT = os.path.join(CKPT_DIR, "ppo_real_franka_best_place_success.pt")
-BEST_PLACE_HARD_CKPT = os.path.join(CKPT_DIR, "ppo_real_franka_best_place_hard.pt")
-BEST_SETTLE_CKPT = os.path.join(CKPT_DIR, "ppo_real_franka_best_settle.pt")
+BEST_STAGE_CKPT = CKPT_DIR / "ppo_real_franka_best_stage.pt"
+BEST_PLACE_SUCCESS_CKPT = CKPT_DIR / "ppo_real_franka_best_place_success.pt"
+BEST_PLACE_HARD_CKPT = CKPT_DIR / "ppo_real_franka_best_place_hard.pt"
+BEST_SETTLE_CKPT = CKPT_DIR / "ppo_real_franka_best_settle.pt"
 
 CURRICULUM_START = float(os.environ.get("CURRICULUM_START", 0.10))
 CURRICULUM_MAX = float(os.environ.get("CURRICULUM_MAX", 0.34))

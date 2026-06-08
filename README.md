@@ -1,81 +1,155 @@
-# Multi task Language conditioned RL training (This is an ongoing project, update monthly- stay tuned)
+# Language_conditioed_RL
 
-It uses the MuJoCo Menagerie Franka Panda scene in `calvin_franka_scene/` with:
+> Ongoing project: multi-task language-conditioned reinforcement learning for robotic pick-and-place.
 
-- real Panda joints, meshes, gripper tendon, contacts, and gravity compensation
+This repository trains a PPO policy for a simulated Franka Panda robot. A user
+prompt selects the block and destination, and the policy is conditioned on that
+task while learning reach, grasp, lift, transport, place, release, and settle
+behavior.
+
+The RL action is continuous and real: end-effector translation, wrist rotation,
+and gripper command. The policy must learn when to approach, close, lift,
+transport, lower, release, and settle the block.
+
+## Environment
+
+![Language-conditioned RL environment](assets/Env.png)
+
+The scene is a CALVIN-style MuJoCo tabletop setup with:
+
+- real Franka Panda joints, meshes, gripper tendon, contacts, and gravity compensation
 - fixed scene camera and wrist camera
 - randomized colored block and target placements
 - goal-conditioned tasks such as `put the red block in the yellow plate`
-- PPO with staged curriculum: reach -> grasp -> lift -> transport -> place/release
-- carry/release gate: after grasp/lift, transport keeps the gripper closed; final place unlocks release only near the target after lowering
-- carry-height guard: while carrying, motion is slowed and upward motion is blocked once the cube is already above the desired transport height
-- best checkpoint saving so later PPO drift does not overwrite the best policy
+- staged PPO curriculum: reach -> grasp -> lift -> transport -> place/release
+- protected best-checkpoint saving so later PPO drift does not overwrite the best policy
 
-The RL action is still continuous and real: end-effector translation, wrist rotation, and gripper command. The policy must learn when to approach, close, lift, transport, lower, release, and settle the block.
+## Repository Layout
 
-## Start Training
+```text
+assets/                         project images and media
+scripts/                        training, evaluation, and demo launchers
+src/language_conditioned_rl/    environment, PPO, and language parser
+third_party/calvin_franka_scene MuJoCo Franka scene and robot assets
+```
 
-From the repo root:
+Generated checkpoints, videos, logs, and renders are intentionally ignored by
+Git so the repository stays clean.
+
+## Installation
+
+Create and activate a Python environment, then install the dependencies:
 
 ```bash
-cd your path
-source franka_rl_env/bin/activate
-rm -rf real_franka_pick_place/checkpoints
-python3 -u real_franka_pick_place/train.py
+pip install -r requirements.txt
+```
+
+For editable development:
+
+```bash
+pip install -e .
+```
+
+## Quick Check
+
+Render the scene and verify that the environment steps correctly:
+
+```bash
+python scripts/smoke_test.py
+```
+
+The rendered camera images are saved under `renders/`.
+
+## Training
+
+Start PPO training:
+
+```bash
+python scripts/train.py
 ```
 
 Or use the launcher:
 
 ```bash
-./real_franka_pick_place/start_training.sh
+./scripts/start_training.sh
 ```
 
 Useful long-run command:
 
 ```bash
-./real_franka_pick_place/start_training.sh > real_franka_pick_place/train_latest.log 2>&1
-tail -f real_franka_pick_place/train_latest.log
+./scripts/start_training.sh > train_latest.log 2>&1
+tail -f train_latest.log
 ```
 
-## Resume From Good Lift Checkpoint
-
-If reach/grasp/lift are good and place drifted, resume from the protected pre-place checkpoint. This restarts at the transport stage before learning the final release:
-
-```bash
-cd your path
-source franka_rl_env/bin/activate
-RESUME_CKPT=real_franka_pick_place/checkpoints/ppo_real_franka_pre_place.pt \
-./real_franka_pick_place/start_training.sh
-```
-
-The current reward is phase-gated: lift first, transport the held block above the target, then lower, release, and settle. The trainer waits for reliable transport before entering release/place. In the logs, `Gate` should be low before grasp, then active after the object is held/lifted. `Guard` should be active while carrying, and `OverLift` should fall; in `Stage place`, release unlocks only when the block is near the target and low enough.
+Checkpoints are saved under `checkpoints/`.
 
 ## Best Checkpoints
 
 Training saves several protected best models:
 
-- `checkpoints/ppo_real_franka_best_stage.pt`
-- `checkpoints/ppo_real_franka_best_place_success.pt`
-- `checkpoints/ppo_real_franka_best_place_hard.pt`
-- `checkpoints/ppo_real_franka_best_settle.pt`
+```text
+checkpoints/ppo_real_franka_best_stage.pt
+checkpoints/ppo_real_franka_best_place_success.pt
+checkpoints/ppo_real_franka_best_place_hard.pt
+checkpoints/ppo_real_franka_best_settle.pt
+```
 
 Use the best-place-success checkpoint first for videos.
 
-## Evaluate And Record
+## Evaluation
+
+Evaluate a trained checkpoint:
+
+```bash
+python scripts/evaluate.py checkpoints/ppo_real_franka_best_place_success.pt
+```
+
+Record videos:
 
 ```bash
 N_EPISODES=20 VIDEO_EPISODES=5 CAMERA=both \
-VIDEO_PATH=real_franka_pick_place/eval_best.mp4 \
-python3 real_franka_pick_place/evaluate.py \
-real_franka_pick_place/checkpoints/ppo_real_franka_best_place_success.pt
+VIDEO_PATH=eval_best.mp4 \
+python scripts/evaluate.py checkpoints/ppo_real_franka_best_place_success.pt
 ```
 
 Camera options are `fixed_scene`, `wrist_camera`, or `both`.
 
-## Smoke Test
+## Language Commands
+
+Parse a user command:
 
 ```bash
-python3 real_franka_pick_place/smoke_test.py
+python -m language_conditioned_rl.llm_parser "put the red block on the yellow plate"
 ```
 
-This saves render checks in `real_franka_pick_place/renders/`.
+Run a same-scene command sequence:
+
+```bash
+SEQUENCE_COMMANDS="put the red block on the yellow plate ;; put the green block in the cyan bowl" \
+N_SEQUENCES=10 VIDEO_SEQUENCES=1 CAMERA=fixed_scene \
+python scripts/evaluate_sequence.py checkpoints/ppo_real_franka_best_place_success.pt
+```
+
+If `OPENAI_API_KEY` is available, the parser can use the OpenAI API. Otherwise
+it falls back to deterministic color/object matching.
+
+## Tasks
+
+The environment currently includes these language-conditioned goals:
+
+```text
+put the red block in the yellow plate
+put the blue block in the purple plate
+put the green block in the cyan bowl
+put the red block in the orange plate
+```
+
+## Third-Party Assets
+
+The Franka Panda robot assets come from MuJoCo Menagerie and keep their original
+Apache-2.0 license in `third_party/calvin_franka_scene/MENAGERIE_PANDA_LICENSE`.
+
+## License
+
+Project code is released under the MIT License. Third-party robot assets keep
+their original license.

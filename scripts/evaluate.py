@@ -1,21 +1,26 @@
 import os
 import sys
+from pathlib import Path
 
 import imageio
 import numpy as np
 import torch
 
-from env import CAMERAS, RealFrankaPickPlaceEnv, STAGE_NAMES, STAGE_PLACE
-from ppo import PPO
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = PROJECT_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from language_conditioned_rl.env import CAMERAS, RealFrankaPickPlaceEnv, STAGE_NAMES, STAGE_PLACE
+from language_conditioned_rl.ppo import PPO
 
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CKPT = os.path.join(SCRIPT_DIR, "checkpoints", "ppo_real_franka_best_place_success.pt")
+DEFAULT_CKPT = PROJECT_ROOT / "checkpoints" / "ppo_real_franka_best_place_success.pt"
 CKPT = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_CKPT
 N_EPISODES = int(os.environ.get("N_EPISODES", 20))
 VIDEO_EPISODES = int(os.environ.get("VIDEO_EPISODES", 3))
 VIDEO_PATH = os.environ.get(
-    "VIDEO_PATH", os.path.join(SCRIPT_DIR, "eval_real_franka.mp4")
+    "VIDEO_PATH", str(PROJECT_ROOT / "eval_real_franka.mp4")
 )
 CAMERA = os.environ.get("CAMERA", "fixed_scene")
 TASK_INDEX = os.environ.get("TASK_INDEX")
@@ -88,7 +93,7 @@ def evaluate():
     parsed_command = None
 
     if COMMAND and fixed_task is None:
-        from llm_parser import parse_command
+        from language_conditioned_rl.llm_parser import parse_command
 
         parsed_command = parse_command(COMMAND)
         fixed_task = int(parsed_command["task_index"])

@@ -1,13 +1,19 @@
 import os
+import sys
+from pathlib import Path
 
 import imageio
 import numpy as np
 
-from env import RealFrankaPickPlaceEnv
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = PROJECT_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from language_conditioned_rl.env import RealFrankaPickPlaceEnv
 
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-RENDER_DIR = os.path.join(SCRIPT_DIR, "renders")
+RENDER_DIR = PROJECT_ROOT / "renders"
 os.makedirs(RENDER_DIR, exist_ok=True)
 
 
@@ -46,4 +52,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

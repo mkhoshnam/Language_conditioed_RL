@@ -1,12 +1,18 @@
 import os
 import sys
+from pathlib import Path
 
 import imageio
 import mujoco
 import numpy as np
 import torch
 
-from env import (
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = PROJECT_ROOT / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from language_conditioned_rl.env import (
     BLOCK_NAMES,
     TARGET_NAMES,
     TASKS,
@@ -14,13 +20,16 @@ from env import (
     GRIPPER_OPEN_CTRL,
     STAGE_PLACE,
     RealFrankaPickPlaceEnv,
+    BLOCK_X_RANGE,
+    BLOCK_Y_RANGE,
+    TARGET_X_RANGE,
+    TARGET_Y_RANGE,
 )
-from llm_parser import parse_command
-from ppo import PPO
+from language_conditioned_rl.llm_parser import parse_command
+from language_conditioned_rl.ppo import PPO
 
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_CKPT = os.path.join(SCRIPT_DIR, "checkpoints", "GOOD_78_best_place_success.pt")
+DEFAULT_CKPT = PROJECT_ROOT / "checkpoints" / "GOOD_78_best_place_success.pt"
 CKPT = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_CKPT
 
 SEQUENCE_COMMANDS = os.environ.get(
@@ -33,7 +42,7 @@ N_SEQUENCES = int(os.environ.get("N_SEQUENCES", 30))
 VIDEO_SEQUENCES = int(os.environ.get("VIDEO_SEQUENCES", 1))
 STEPS_PER_COMMAND = int(os.environ.get("STEPS_PER_COMMAND", 280))
 VIDEO_PATH = os.environ.get(
-    "VIDEO_PATH", os.path.join(SCRIPT_DIR, "same_scene_sequence.mp4")
+    "VIDEO_PATH", str(PROJECT_ROOT / "same_scene_sequence.mp4")
 )
 CAMERA = os.environ.get("CAMERA", "fixed_scene")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -87,6 +96,41 @@ def reset_task_progress(env):
     env._max_lift_height = 0.0
 
 
+def setup_sequence_scene(env, parsed_tasks):
+    used = []
+    block_xy = {}
+
+    for name in BLOCK_NAMES:
+        xy = env._sample_xy(used, BLOCK_X_RANGE, BLOCK_Y_RANGE, min_sep=0.080)
+        used.append(xy)
+        block_xy[name] = xy
+        env._set_block_pose(name, xy)
+
+    placed_targets = set()
+    for item in parsed_tasks:
+        block = item["block"]
+        target = item["target"]
+
+        if target in placed_targets:
+            continue
+
+        target_xy = env._sample_target_xy(block_xy[block], used)
+        used.append(target_xy)
+        env._set_target_pose(target, target_xy)
+        placed_targets.add(target)
+
+    for name in TARGET_NAMES:
+        if name in placed_targets:
+            continue
+        xy = env._sample_xy(used, TARGET_X_RANGE, TARGET_Y_RANGE, min_sep=0.095)
+        used.append(xy)
+        env._set_target_pose(name, xy)
+
+    env.data.qvel[:] = 0.0
+    mujoco.mj_forward(env.model, env.data)
+    reset_task_progress(env)
+
+
 def reset_robot_home_keep_scene(env):
     block_qpos = {}
     block_qvel = {}
@@ -121,6 +165,34 @@ def reset_robot_home_keep_scene(env):
     env._gripper_ctrl_target = GRIPPER_OPEN_CTRL
     env.data.ctrl[:7] = env._arm_ctrl_target
     env.data.ctrl[7] = env._gripper_ctrl_target
+
+    mujoco.mj_forward(env.model, env.data)
+    reset_task_progress(env)
+
+
+def move_robot_home_keep_scene(env, frames=None, goal="returning home", steps=140):
+    if env._home_key_id >= 0:
+        home_qpos = env.model.key_qpos[env._home_key_id].copy()
+        home_arm = home_qpos[env._act_qpos_addr[:7]].copy()
+    else:
+        home_arm = env.data.qpos[env._act_qpos_addr[:7]].copy()
+
+    env._gripper_ctrl_target = GRIPPER_OPEN_CTRL
+    env.data.ctrl[7] = env._gripper_ctrl_target
+
+    for _ in range(steps):
+        q_arm = env.data.qpos[env._act_qpos_addr[:7]].copy()
+        diff = home_arm - q_arm
+
+        step = np.clip(diff, -0.025, 0.025)
+        env._arm_ctrl_target = q_arm + step
+        env.data.ctrl[:7] = env._arm_ctrl_target
+        env.data.ctrl[7] = GRIPPER_OPEN_CTRL
+
+        mujoco.mj_step(env.model, env.data)
+
+        if frames is not None:
+            frames.append(render_frame(env, goal))
 
     mujoco.mj_forward(env.model, env.data)
     reset_task_progress(env)
@@ -185,6 +257,7 @@ def main():
         for seq_i in range(N_SEQUENCES):
             env.reset()
             env.task_stage = STAGE_PLACE
+            setup_sequence_scene(env, parsed)
 
             frames = []
             sequence_ok = True
@@ -209,7 +282,11 @@ def main():
                     break
 
                 if cmd_i < len(parsed) - 1:
-                    reset_robot_home_keep_scene(env)
+                    move_robot_home_keep_scene(
+                        env,
+                        frames if saved < VIDEO_SEQUENCES else None,
+                        goal="returning to home",
+                    )
 
             if sequence_ok:
                 full_successes += 1

@@ -1,7 +1,7 @@
 import json
 import os
 
-from env import BLOCK_NAMES, TARGET_NAMES, TASKS
+from language_conditioned_rl.env import BLOCK_NAMES, TARGET_NAMES, TASKS
 
 
 def task_to_index(block: str, target: str) -> int:
