@@ -1,6 +1,6 @@
-# Real Franka Pick-Place RL
+# Multi task Language conditioned RL training 
 
-This is the harder/realistic training setup. It uses the MuJoCo Menagerie Franka Panda scene in `calvin_franka_scene/` with:
+It uses the MuJoCo Menagerie Franka Panda scene in `calvin_franka_scene/` with:
 
 - real Panda joints, meshes, gripper tendon, contacts, and gravity compensation
 - fixed scene camera and wrist camera
