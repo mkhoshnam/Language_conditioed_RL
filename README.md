@@ -18,7 +18,7 @@ The RL action is still continuous and real: end-effector translation, wrist rota
 From the repo root:
 
 ```bash
-cd /media/mohammad/5f7c6d23-fd63-41c6-a822-d02e7c7290601/franka_rl
+cd your path
 source franka_rl_env/bin/activate
 rm -rf real_franka_pick_place/checkpoints
 python3 -u real_franka_pick_place/train.py
@@ -42,7 +42,7 @@ tail -f real_franka_pick_place/train_latest.log
 If reach/grasp/lift are good and place drifted, resume from the protected pre-place checkpoint. This restarts at the transport stage before learning the final release:
 
 ```bash
-cd /media/mohammad/5f7c6d23-fd63-41c6-a822-d02e7c7290601/franka_rl
+cd your path
 source franka_rl_env/bin/activate
 RESUME_CKPT=real_franka_pick_place/checkpoints/ppo_real_franka_pre_place.pt \
 ./real_franka_pick_place/start_training.sh
