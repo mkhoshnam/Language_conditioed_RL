@@ -20,6 +20,10 @@ runs/
 wandb/
 logs/
 *.log
+*.pt
+*.pth
+*.ckpt
+events.out.tfevents.*
 
 # Generated media and renders
 renders/

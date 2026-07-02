@@ -29,7 +29,10 @@ The scene is a CALVIN-style MuJoCo tabletop setup with:
 ```text
 assets/                         project images and media
 scripts/                        training, evaluation, and demo launchers
+scripts/isaac_sim_ik/           Isaac Sim / Isaac Lab IK training and playback
 src/language_conditioned_rl/    environment, PPO, and language parser
+src/language_conditioned_rl/isaac_sim_ik/
+                                Isaac Lab Franka grasp curriculum environments
 third_party/calvin_franka_scene MuJoCo Franka scene and robot assets
 ```
 
@@ -82,6 +85,43 @@ tail -f train_latest.log
 ```
 
 Checkpoints are saved under `checkpoints/`.
+
+## Isaac Sim IK Curriculum
+
+This repo also includes the Isaac Sim / Isaac Lab version of the grasp
+curriculum. It is kept as a separate path so the MuJoCo language-conditioned
+workflow and the Isaac task-space IK workflow can live together cleanly.
+
+The Isaac workflow requires an Isaac Sim / Isaac Lab Python environment with
+`isaaclab`, `isaaclab_rl`, `isaacsim`, `rsl_rl`, and their NVIDIA dependencies
+available.
+
+Train the task-space differential-IK controller:
+
+```bash
+python scripts/isaac_sim_ik/train_grasp_auto_curriculum.py \
+  --controller ik \
+  --num_envs 8192 \
+  --max_iterations 5000 \
+  --experiment_name grasp_auto_curriculum_ik_waypoint
+```
+
+Train the original joint-delta controller for comparison:
+
+```bash
+python scripts/isaac_sim_ik/train_grasp_auto_curriculum.py --controller joint
+```
+
+Play a saved checkpoint:
+
+```bash
+python scripts/isaac_sim_ik/play_grasp_curriculum.py \
+  --controller ik \
+  --checkpoint logs/rsl_rl/grasp_auto_curriculum_ik_waypoint/<run>/model_auto_final_5000.pt
+```
+
+Isaac Lab logs, TensorBoard events, and model checkpoints are written under
+`logs/` and are ignored by Git.
 
 ## Best Checkpoints
 
