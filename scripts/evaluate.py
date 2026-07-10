@@ -138,7 +138,7 @@ def evaluate():
     max_gopen = []
     ee_down = []
     place_ee_down = []
-    on_table = []
+    at_dest = []
     max_lifts = []
     best_places = []
     best_settles = []
@@ -166,7 +166,7 @@ def evaluate():
             ep_max_gopen = 0.0
             ep_ee_down = -1.0
             ep_place_ee_down = 0.0
-            ep_on_table = False
+            ep_at_dest = False
             ep_max_lift = 0.0
             ep_best_place = np.inf
             ep_best_settle = 0.0
@@ -192,7 +192,9 @@ def evaluate():
                 ep_max_gopen = max(ep_max_gopen, info["post_lift_gripper_open"])
                 ep_ee_down = max(ep_ee_down, info["ee_z_down"])
                 ep_place_ee_down = max(ep_place_ee_down, info["place_ee_down_score"])
-                ep_on_table = ep_on_table or bool(info["cube_on_table"])
+                ep_at_dest = ep_at_dest or bool(
+                    info.get("cube_at_dest", info["cube_on_table"])
+                )
                 ep_max_lift = max(ep_max_lift, info["max_lift_height"])
                 ep_best_place = min(ep_best_place, info["place_dist"])
                 ep_best_settle = max(ep_best_settle, info["settle_score"])
@@ -220,14 +222,14 @@ def evaluate():
             max_gopen.append(ep_max_gopen)
             ee_down.append(ep_ee_down)
             place_ee_down.append(ep_place_ee_down)
-            on_table.append(ep_on_table)
+            at_dest.append(ep_at_dest)
             max_lifts.append(ep_max_lift)
             best_places.append(ep_best_place)
             best_settles.append(ep_best_settle)
             print(
                 f"  Episode {ep + 1}: success={ep_success} "
                 f"goal={goals[-1]!r} grasped={ep_grasped} secure={ep_secure} "
-                f"lifted={ep_lifted} released={ep_released} table={ep_on_table} "
+                f"lifted={ep_lifted} released={ep_released} at_dest={ep_at_dest} "
                 f"open_near={ep_open_near} drop_far={ep_drop_far} "
                 f"held={ep_held} gopen={ep_max_gopen:.2f} "
                 f"ee_down={ep_place_ee_down:.2f} "
@@ -249,7 +251,7 @@ def evaluate():
     print(f"Held-like rate: {np.mean(held):.0%}")
     print(f"Mean max gripper-open: {np.mean(max_gopen):.2f}")
     print(f"Mean best EE-down near target: {np.mean(place_ee_down):.2f}")
-    print(f"On-table rate: {np.mean(on_table):.0%}")
+    print(f"At-destination-height rate: {np.mean(at_dest):.0%}")
     print(f"Mean max lift: {np.mean(max_lifts) * 100:.1f} cm")
     print(f"Mean best place dist: {np.mean(best_places) * 100:.1f} cm")
     print(f"Mean best settle score: {np.mean(best_settles):.2f}")

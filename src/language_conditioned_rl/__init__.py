@@ -1,4 +1,4 @@
-"""Language-conditioned reinforcement learning for Franka pick-and-place."""
+"""Language-conditioned reinforcement learning for Franka placing and stacking."""
 
 from typing import TYPE_CHECKING
 

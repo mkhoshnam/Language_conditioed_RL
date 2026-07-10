@@ -34,7 +34,7 @@ SAVE_INTERVAL = int(os.environ.get("SAVE_INTERVAL", 25))
 ROLLING_WINDOW = int(os.environ.get("ROLLING_WINDOW", 50))
 MIN_BEST_WINDOW = int(os.environ.get("MIN_BEST_WINDOW", 20))
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-CKPT_DIR = PROJECT_ROOT / "checkpoints"
+CKPT_DIR = os.environ.get("CKPT_DIR", str(PROJECT_ROOT / "checkpoints"))
 os.makedirs(CKPT_DIR, exist_ok=True)
 RESUME_CKPT = os.environ.get("RESUME_CKPT")
 LR = float(os.environ.get("LR", 1.5e-4))
@@ -43,10 +43,10 @@ ENT_COEF = float(os.environ.get("ENT_COEF", 0.004))
 PLACE_ENT_COEF = float(os.environ.get("PLACE_ENT_COEF", ENT_COEF * 0.35))
 PLACE_CLIP_EPS = float(os.environ.get("PLACE_CLIP_EPS", 0.10))
 
-BEST_STAGE_CKPT = CKPT_DIR / "ppo_real_franka_best_stage.pt"
-BEST_PLACE_SUCCESS_CKPT = CKPT_DIR / "ppo_real_franka_best_place_success.pt"
-BEST_PLACE_HARD_CKPT = CKPT_DIR / "ppo_real_franka_best_place_hard.pt"
-BEST_SETTLE_CKPT = CKPT_DIR / "ppo_real_franka_best_settle.pt"
+BEST_STAGE_CKPT = os.path.join(CKPT_DIR, "ppo_real_franka_best_stage.pt")
+BEST_PLACE_SUCCESS_CKPT = os.path.join(CKPT_DIR, "ppo_real_franka_best_place_success.pt")
+BEST_PLACE_HARD_CKPT = os.path.join(CKPT_DIR, "ppo_real_franka_best_place_hard.pt")
+BEST_SETTLE_CKPT = os.path.join(CKPT_DIR, "ppo_real_franka_best_settle.pt")
 
 CURRICULUM_START = float(os.environ.get("CURRICULUM_START", 0.10))
 CURRICULUM_MAX = float(os.environ.get("CURRICULUM_MAX", 0.34))
@@ -68,8 +68,18 @@ LIFT_CURRICULUM_SUCCESS = float(os.environ.get("LIFT_CURRICULUM_SUCCESS", 0.82))
 LIFT_TO_PLACE_SECURE = float(os.environ.get("LIFT_TO_PLACE_SECURE", 0.88))
 LIFT_TO_PLACE_MARGIN = float(os.environ.get("LIFT_TO_PLACE_MARGIN", 0.010))
 TRANSPORT_TO_PLACE_SUCCESS = float(os.environ.get("TRANSPORT_TO_PLACE_SUCCESS", 0.65))
-TRANSPORT_TO_PLACE_DIST = float(os.environ.get("TRANSPORT_TO_PLACE_DIST", TRANSPORT_RADIUS + 0.010))
+TRANSPORT_TO_PLACE_DIST = float(
+    os.environ.get("TRANSPORT_TO_PLACE_DIST", TRANSPORT_RADIUS + 0.010)
+)
 TRANSPORT_MAX_DROPFAR = float(os.environ.get("TRANSPORT_MAX_DROPFAR", 0.18))
+STACK_TASK_FRACTION_START = float(os.environ.get("STACK_TASK_FRACTION_START", 0.20))
+STACK_TASK_FRACTION_MAX = float(os.environ.get("STACK_TASK_FRACTION_MAX", 0.50))
+STACK_TASK_FRACTION_STEP = float(os.environ.get("STACK_TASK_FRACTION_STEP", 0.05))
+STACK_TASK_FRACTION_SUCCESS = float(os.environ.get("STACK_TASK_FRACTION_SUCCESS", 0.35))
+STACK_TASK_FRACTION_COOLDOWN_UPDATES = int(
+    os.environ.get("STACK_TASK_FRACTION_COOLDOWN_UPDATES", 40)
+)
+MIN_SKILL_WINDOW = int(os.environ.get("MIN_SKILL_WINDOW", 10))
 
 
 def _mean(values, window, default=0.0):
@@ -83,6 +93,7 @@ def train():
     env.curriculum_dist = CURRICULUM_START
     env.curriculum_lift_height = LIFT_CURRICULUM_START
     env.success_radius = SUCCESS_RADIUS_START
+    env.stack_task_fraction = STACK_TASK_FRACTION_START
     task_stage = STAGE_REACH
     env.task_stage = task_stage
 
@@ -116,6 +127,7 @@ def train():
     update_num = 0
     last_curriculum_update = 0
     last_stage_update = 0
+    last_stack_fraction_update = 0
     best_stage_score = (-1, -1.0, -1.0, -1.0, -1e9)
     best_place_success_score = (-1.0, -1.0, -1e9, -1e9)
     best_place_hard_score = (-1.0, -1.0, -1e9, -1e9)
@@ -131,12 +143,24 @@ def train():
             agent.extra.get("lift_goal_height", env.curriculum_lift_height)
         )
         env.success_radius = float(agent.extra.get("success_radius", env.success_radius))
+        if "STACK_TASK_FRACTION_START" in os.environ:
+            env.stack_task_fraction = STACK_TASK_FRACTION_START
+        else:
+            env.stack_task_fraction = float(
+                agent.extra.get("stack_task_fraction", env.stack_task_fraction)
+            )
         task_stage = int(agent.extra.get("task_stage", task_stage))
         env.task_stage = task_stage
         if task_stage >= STAGE_PLACE:
             set_transport_ppo()
+
+        if os.environ.get("STACK_SPECIALIZE", "0") == "1":
+            agent.freeze_for_stack_specialization(train_logstd=False)
         last_stage_update = update_num
         last_curriculum_update = update_num
+        last_stack_fraction_update = int(
+            agent.extra.get("last_stack_fraction_update", update_num)
+        )
         best_stage_score = tuple(agent.extra.get("best_stage_score", best_stage_score))
         best_place_success_score = tuple(
             agent.extra.get("best_place_success_score", best_place_success_score)
@@ -152,7 +176,8 @@ def train():
     print(
         f"LR {LR:g} | PlaceLR {PLACE_LR:g} | "
         f"EntCoef {ENT_COEF:g} | PlaceEnt {PLACE_ENT_COEF:g} | "
-        f"PPO clip 0.15 | PlaceClip {PLACE_CLIP_EPS:g} | epochs 6"
+        f"PPO clip 0.15 | PlaceClip {PLACE_CLIP_EPS:g} | epochs 6 | "
+        f"StackFrac {env.stack_task_fraction:.0%}->{STACK_TASK_FRACTION_MAX:.0%}"
     )
     if RESUME_CKPT:
         print(
@@ -169,6 +194,8 @@ def train():
             "curriculum_dist": env.curriculum_dist,
             "lift_goal_height": env.curriculum_lift_height,
             "success_radius": env.success_radius,
+            "stack_task_fraction": env.stack_task_fraction,
+            "last_stack_fraction_update": last_stack_fraction_update,
             "task_stage": task_stage,
             "stage_name": STAGE_NAMES[task_stage],
             "best_stage_score": list(best_stage_score),
@@ -209,6 +236,7 @@ def train():
             "place_ee_down": 0.0,
             "on_table": 0.0,
             "best_settle": 0.0,
+            "skill": None,
         }
 
     def clear_history():
@@ -235,6 +263,8 @@ def train():
         ep_place_ee_down_scores.clear()
         ep_on_table_flags.clear()
         ep_best_settles.clear()
+        ep_place_skill_successes.clear()
+        ep_stack_skill_successes.clear()
         successes.clear()
 
     obs, _ = env.reset()
@@ -262,6 +292,8 @@ def train():
     ep_place_ee_down_scores = []
     ep_on_table_flags = []
     ep_best_settles = []
+    ep_place_skill_successes = []
+    ep_stack_skill_successes = []
     successes = []
     session_start_step = global_step
     t0 = time.time()
@@ -271,8 +303,12 @@ def train():
         act, logp, val = agent.select_action(obs)
         next_obs, rew, terminated, truncated, info = env.step(act)
         done = terminated or truncated
+        timeout = truncated and not terminated and not bool(info.get("unstable", 0.0))
+        store_rew = rew
+        if timeout:
+            store_rew += agent.gamma * agent.value(next_obs)
 
-        agent.store(obs, act, logp, rew, val, float(done))
+        agent.store(obs, act, logp, store_rew, val, float(done))
         obs = next_obs
         ep["ret"] += rew
         ep["len"] += 1
@@ -295,11 +331,15 @@ def train():
         ep["over_lift"] = max(ep["over_lift"], info["over_lift"])
         ep["ee_down"] = max(ep["ee_down"], info["ee_z_down"])
         ep["place_ee_down"] = max(ep["place_ee_down"], info["place_ee_down_score"])
-        ep["on_table"] = max(ep["on_table"], info["cube_on_table"])
+        ep["on_table"] = max(
+            ep["on_table"], info.get("cube_at_dest", info["cube_on_table"])
+        )
         ep["best_settle"] = max(ep["best_settle"], info["settle_score"])
+        ep["skill"] = info.get("skill", ep["skill"])
         global_step += 1
 
         if done:
+            episode_skill = ep["skill"] or info.get("skill", "place")
             ep_rets.append(ep["ret"])
             ep_lens.append(ep["len"])
             ep_best_reaches.append(ep["best_reach"])
@@ -323,6 +363,10 @@ def train():
             ep_place_ee_down_scores.append(ep["place_ee_down"])
             ep_on_table_flags.append(ep["on_table"])
             ep_best_settles.append(ep["best_settle"])
+            if episode_skill == "stack":
+                ep_stack_skill_successes.append(float(info["success"]))
+            else:
+                ep_place_skill_successes.append(float(info["success"]))
             successes.append(float(info["success"]))
             ep = reset_episode_trackers()
             obs, _ = env.reset()
@@ -337,6 +381,8 @@ def train():
                 mean_len = _mean(ep_lens, window)
                 mean_suc = _mean(successes, window)
                 mean_task_suc = _mean(ep_task_successes, window)
+                mean_place_skill_suc = _mean(ep_place_skill_successes, window, np.nan)
+                mean_stack_skill_suc = _mean(ep_stack_skill_successes, window, np.nan)
                 mean_grasp = _mean(ep_grasped_flags, window)
                 mean_secure = _mean(ep_secure_flags, window)
                 mean_lift = _mean(ep_lifted_flags, window)
@@ -364,6 +410,8 @@ def train():
                     f"Stage {STAGE_NAMES[task_stage]:>5} | "
                     f"Return {mean_ret:8.2f} | "
                     f"Success {mean_suc:6.2%} | "
+                    f"PlaceSkill {mean_place_skill_suc:6.2%} | "
+                    f"StackSkill {mean_stack_skill_suc:6.2%} | "
                     f"Grasp {mean_grasp:6.2%} | "
                     f"Secure {mean_secure:6.2%} | "
                     f"Lift {mean_lift:6.2%} | "
@@ -382,12 +430,13 @@ def train():
                     f"Guard {mean_guard:5.1%} | "
                     f"OverLift {mean_over_lift * 100:4.1f}cm | "
                     f"EEDown {mean_place_ee_down:4.2f} | "
-                    f"Table {mean_on_table:5.1%} | "
+                    f"AtDest {mean_on_table:5.1%} | "
                     f"Settle {mean_settle:4.2f} | "
                     f"Unstable {mean_unstable:5.1%} | "
                     f"Loss {metrics['loss_total']:.4f} | "
                     f"CurrDist {env.curriculum_dist:.2f} | "
                     f"LiftGoal {env.curriculum_lift_height * 100:4.1f}cm | "
+                    f"StackFrac {env.stack_task_fraction:.0%} | "
                     f"SPS {sps:.0f}"
                 )
 
@@ -537,6 +586,10 @@ def train():
                 stage_cooldown_elapsed = (
                     update_num - last_stage_update >= STAGE_COOLDOWN_UPDATES
                 )
+                stack_fraction_cooldown_elapsed = (
+                    update_num - last_stack_fraction_update
+                    >= STACK_TASK_FRACTION_COOLDOWN_UPDATES
+                )
                 stage_changed = False
                 if (
                     task_stage == STAGE_REACH
@@ -643,6 +696,23 @@ def train():
                     )
                     last_curriculum_update = update_num
                     print(f"  >>> Place curriculum advanced to {env.curriculum_dist:.2f}m")
+
+                if (
+                    task_stage == STAGE_PLACE
+                    and stack_fraction_cooldown_elapsed
+                    and env.stack_task_fraction < STACK_TASK_FRACTION_MAX
+                    and len(ep_stack_skill_successes) >= MIN_SKILL_WINDOW
+                    and mean_stack_skill_suc >= STACK_TASK_FRACTION_SUCCESS
+                ):
+                    env.stack_task_fraction = min(
+                        env.stack_task_fraction + STACK_TASK_FRACTION_STEP,
+                        STACK_TASK_FRACTION_MAX,
+                    )
+                    last_stack_fraction_update = update_num
+                    print(
+                        "  >>> Stack task fraction advanced to "
+                        f"{env.stack_task_fraction:.0%}"
+                    )
 
                 if (
                     task_stage == STAGE_PLACE
