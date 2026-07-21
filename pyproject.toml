@@ -17,6 +17,7 @@ dependencies = [
     "openai",
     "opencv-python",
     "torch",
+    "transformers>=4.40",
 ]
 
 [tool.setuptools.packages.find]

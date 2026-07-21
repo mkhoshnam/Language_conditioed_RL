@@ -280,7 +280,13 @@
   </actuator>
 
   <keyframe>
-    <key name="home" qpos="0 0 0 -1.57079 0 1.57079 -0.7853 0.04 0.04" ctrl="0 0 0 -1.57079 0 1.57079 -0.7853 255"/>
+    <!-- The including scene adds three free block joints (7 qpos values each). -->
+    <key name="home"
+      qpos="0 0 0 -1.57079 0 1.57079 -0.7853 0.04 0.04
+            0.42 -0.10 0.255 1 0 0 0
+            0.40 0.06 0.255 1 0 0 0
+            0.52 -0.01 0.255 1 0 0 0"
+      ctrl="0 0 0 -1.57079 0 1.57079 -0.7853 255"/>
   </keyframe>
 
   <contact>

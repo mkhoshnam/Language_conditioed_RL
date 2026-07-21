@@ -5,3 +5,4 @@ numpy
 openai
 opencv-python
 torch
+transformers>=4.40

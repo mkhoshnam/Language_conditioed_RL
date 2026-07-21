@@ -20,6 +20,26 @@ lower, release, and settle.
 - deterministic local command parser with optional OpenAI-backed parsing
 - backward-compatible loading for older single-head, 101-feature checkpoints
 - fixed-scene and wrist-camera rendering, evaluation, and sequence recording
+- separate true-language transformer PPO with raw token conditioning and place-to-stack transfer
+
+## True-Language Transformer Extension
+
+The original structured-task PPO remains available and unchanged. A separate
+implementation now matches the proposed true-language architecture: frozen
+pretrained word-piece embeddings, typed robot/entity tokens, a shared
+multimodal transformer, and independent action/value readouts. The actor does
+not receive a task ID, parser goal vector, selected-object one-hot, skill bit, or
+curriculum-stage input.
+
+Train the placing curriculum, then transfer the complete checkpoint to stacking:
+
+```bash
+./scripts/transformer/train_place.sh
+./scripts/transformer/train_transfer.sh
+```
+
+See [the transformer PPO guide](docs/transformer_ppo.md) for architecture,
+configuration, evaluation, smoke tests, and the transfer protocol.
 
 ## Environment
 
